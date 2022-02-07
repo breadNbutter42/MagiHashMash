@@ -36,7 +36,7 @@ contract MagiHashMash is ERC721Enumerable, Ownable, IERC2981, ReentrancyGuard { 
 
   string baseURI; //real URI
   string public baseExtension = ".json"; //URI is stored as this type of file name
-  uint256 public cost = 0.05 ether; //Public mint cost
+  uint256 public cost = 0.06 ether; //Public mint cost
   uint256 public maxSupply = 1111; //Maximum nfts in the entire collection
   uint256 public maxMintAmount = 10; //Max users can mint per transaction
   bool public paused = false; //pause all minting
@@ -259,7 +259,7 @@ contract MagiHashMash is ERC721Enumerable, Ownable, IERC2981, ReentrancyGuard { 
       revealed = true;
   }
   
-  function setCost(uint256 _newCost) public onlyOwner {
+  function setCostPerNFT(uint256 _newCost) public onlyOwner {
     cost = _newCost;
   }
 
