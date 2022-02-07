@@ -3360,7 +3360,6 @@ contract MagiHashMash is ERC721Enumerable, Ownable, IERC2981, ReentrancyGuard { 
   using Counters for Counters.Counter; //Added.
   Counters.Counter private tokenCounter; //Added.
 
-  string public verificationHash; //Added.
   bool public isPublicSaleActive;  //Added.
   uint256 public MAX_NFTs_PER_WALLET = 10; //Added.
   uint256 public ALLOW_LIST_SALE_PRICE = 0.05 ether; //Added.
@@ -3561,14 +3560,6 @@ contract MagiHashMash is ERC721Enumerable, Ownable, IERC2981, ReentrancyGuard { 
     
   function setALLOW_LIST_SALE_PRICEinEther(uint256 _ALLOW_LIST_SALE_PRICE) external onlyOwner {
     ALLOW_LIST_SALE_PRICE = _ALLOW_LIST_SALE_PRICE;
-  } //Added.
-
-  
-  function setVerificationHash(string memory _verificationHash)
-    external
-    onlyOwner
-  {
-    verificationHash = _verificationHash;
   } //Added.
 
   function setIsPublicSaleActive(bool _isPublicSaleActive)
