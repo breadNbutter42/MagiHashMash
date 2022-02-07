@@ -1,0 +1,349 @@
+//Extension of the Hashlips base smart contract to include reentrancy guard, merkle tree whitelist support and pre-mint timing, as well as royalties
+
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.7.0 <0.9.0;
+
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol"; //https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC721/extensions/ERC721Enumerable.sol
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+import "hardhat/console.sol"; //Added. https://remix-ide.readthedocs.io/en/latest/%5C/hardhat_console.html
+import "@openzeppelin/contracts/interfaces/IERC2981.sol"; //Added. https://eips.ethereum.org/EIPS/eip-2981
+import "@openzeppelin/contracts/interfaces/IERC20.sol";//Added.
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";//Added
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";//Added.
+import "@openzeppelin/contracts/utils/Counters.sol";//Added.
+import "@openzeppelin/contracts/utils/Strings.sol";//Added.
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";//Added.
+
+
+contract MagiHashMash is ERC721Enumerable, Ownable, IERC2981, ReentrancyGuard { //Added IERC2981, ReentrancyGuard
+  using Strings for uint256;
+  using Counters for Counters.Counter; //Added.
+  Counters.Counter private tokenCounter; //Added.
+
+  string public verificationHash; //Added.
+  bool public isPublicSaleActive;  //Added.
+  uint256 public MAX_NFTs_PER_WALLET = 10; //Added.
+  uint256 public ALLOW_LIST_SALE_PRICE = 0.05 ether; //Added.
+  uint256 public maxAllowListSaleNFTs; //Added.
+  bytes32 public allowListSaleMerkleRoot; //Added.
+  bool public isAllowListSaleActive; //Added.
+  bytes32 public claimListMerkleRoot; //Added.
+  mapping(address => uint256) public allowListMintCounts; //Added.
+
+
+
+
+  string baseURI; //real URI
+  string public baseExtension = ".json"; //URI is stored as this type of file name
+  uint256 public cost = 0.05 ether; //Public mint cost
+  uint256 public maxSupply = 1111; //Maximum nfts in the entire collection
+  uint256 public maxMintAmount = 10; //Max users can mint per transaction
+  bool public paused = false; //pause all minting
+  bool public revealed = false; //reveal the real URI if true or hidden URI if false
+  string public notRevealedUri;
+
+
+
+      // ============ ACCESS CONTROL/Function MODIFIERS ============
+
+  modifier publicSaleActive() {
+    require(isPublicSaleActive, "Public sale is not open");
+    _;
+  }//Added.
+
+  modifier allowListSaleActive() {
+    require(isAllowListSaleActive, "Allow list sale is not open");
+    _;
+  }//Added.
+
+  modifier maxNFTsPerWallet(uint256 numberOfTokens) {
+    require(
+        balanceOf(msg.sender) + numberOfTokens <= MAX_NFTs_PER_WALLET,
+        "Max NFTs per wallet is ten");
+    _;
+  }//Added.
+
+  modifier canMintNFTs(uint256 numberOfTokens) {
+    require(
+        tokenCounter.current() + numberOfTokens <=
+            maxSupply,
+            "Not enough NFTs remaining to mint");
+    _;
+  }//Added.
+
+
+  modifier isCorrectPayment(uint256 price, uint256 numberOfTokens) {
+    require(
+        price * numberOfTokens == msg.value,
+        "Incorrect ETH value sent");
+    _;
+  }//Added.
+
+  modifier isValidMerkleProof(bytes32[] calldata merkleProof, bytes32 root) {
+    require(
+        MerkleProof.verify(
+            merkleProof,
+            root,
+            keccak256(abi.encodePacked(msg.sender))),
+        "Address does not exist in list");
+    _;
+  }//Added.
+
+
+
+
+
+  constructor(
+    string memory _name,
+    string memory _symbol,
+    string memory _initBaseURI,
+    string memory _initNotRevealedUri
+  ) ERC721(_name, _symbol) {
+    setBaseURI(_initBaseURI);
+    setNotRevealedURI(_initNotRevealedUri);
+  }
+
+  // internal
+  function _baseURI() internal view virtual override returns (string memory) {
+    return baseURI;
+  }
+
+  // public
+  function mint(
+    uint256 _mintAmount
+  ) 
+    public 
+    payable 
+    nonReentrant 
+    isCorrectPayment (cost, _mintAmount)
+    publicSaleActive 
+    canMintNFTs(_mintAmount) 
+    maxNFTsPerWallet(_mintAmount)
+  { //Added all the modifiers
+    uint256 supply = totalSupply();
+    require(!paused);
+    require(_mintAmount > 0);
+    require(_mintAmount <= maxMintAmount);
+    require(supply + _mintAmount <= maxSupply);
+    for (uint256 i = 1; i <= _mintAmount; i++) {
+      _safeMint(msg.sender, supply + i);
+    }
+  }
+
+
+  function mintAllowListSale(
+    uint8 numberOfTokens,
+    bytes32[] calldata merkleProof
+  )
+    external
+    payable
+    nonReentrant
+    allowListSaleActive
+    canMintNFTs(numberOfTokens)
+    isCorrectPayment(ALLOW_LIST_SALE_PRICE, numberOfTokens)
+    isValidMerkleProof(merkleProof, allowListSaleMerkleRoot)
+    
+  {
+    uint256 numAlreadyMinted = allowListMintCounts[msg.sender];
+
+    require(
+      numAlreadyMinted + numberOfTokens <= MAX_NFTs_PER_WALLET,
+      "Max NFTs to mint in allow list sale is ten"
+    );
+
+    require(
+      tokenCounter.current() + numberOfTokens <= maxAllowListSaleNFTs,
+      "Not enough NFTs remaining to mint"
+    );
+
+    require(!paused);
+
+    allowListMintCounts[msg.sender] = numAlreadyMinted + numberOfTokens;
+
+    for (uint256 i = 0; i < numberOfTokens; i++) {
+      _safeMint(msg.sender, nextTokenId());
+    }
+  } //Added.
+
+  function getLastTokenId() external view returns (uint256) {
+    return tokenCounter.current();
+  } //Added.
+
+  function walletOfOwner(address _owner)
+    public
+    view
+    returns (uint256[] memory)
+  {
+    uint256 ownerTokenCount = balanceOf(_owner);
+    uint256[] memory tokenIds = new uint256[](ownerTokenCount);
+    for (uint256 i; i < ownerTokenCount; i++) {
+      tokenIds[i] = tokenOfOwnerByIndex(_owner, i);
+    }
+    return tokenIds;
+  }
+
+  function tokenURI(uint256 tokenId)
+    public
+    view
+    virtual
+    override
+    returns (string memory)
+  {
+    require(
+      _exists(tokenId),
+      "ERC721Metadata: URI query for nonexistent token"
+    );
+    
+    if(revealed == false) {
+        return notRevealedUri;
+    }
+
+    string memory currentBaseURI = _baseURI();
+    return bytes(currentBaseURI).length > 0
+        ? string(abi.encodePacked(currentBaseURI, tokenId.toString(), baseExtension))
+        : "";
+  }
+
+  
+  //only owner
+
+  function setMaxSupplyInTOTALCollection(uint256 _maxNFTs2) external onlyOwner {
+    maxSupply = _maxNFTs2;
+  } //Added.
+
+  function setMaxAllowListSaleNFTs(uint256 _maxAllowListSaleNFTs) external onlyOwner {
+    maxAllowListSaleNFTs = _maxAllowListSaleNFTs;
+  } //Added.
+
+  function setMAX_NFTs_PER_WALLET(uint256 _MAX_NFTs_PER_WALLET) external onlyOwner {
+    MAX_NFTs_PER_WALLET = _MAX_NFTs_PER_WALLET;
+  } //Added.
+    
+  function setALLOW_LIST_SALE_PRICEinEther(uint256 _ALLOW_LIST_SALE_PRICE) external onlyOwner {
+    ALLOW_LIST_SALE_PRICE = _ALLOW_LIST_SALE_PRICE;
+  } //Added.
+
+  
+  function setVerificationHash(string memory _verificationHash)
+    external
+    onlyOwner
+  {
+    verificationHash = _verificationHash;
+  } //Added.
+
+  function setIsPublicSaleActive(bool _isPublicSaleActive)
+    external
+    onlyOwner
+  {
+    isPublicSaleActive = _isPublicSaleActive;
+  } //Added.
+
+  function setIsAllowListSaleActive(bool _isAllowListSaleActive)
+    external
+    onlyOwner
+  {
+    isAllowListSaleActive = _isAllowListSaleActive;
+  } //Added.
+
+  function _generateMerkleLeaf(address account) internal pure returns(bytes32) {
+    return keccak256(abi.encodePacked(account));
+  } //Added.
+
+  function setAllowListSaleMerkleRoot(bytes32 merkleRoot) external onlyOwner {
+    allowListSaleMerkleRoot = merkleRoot;
+  } //Added.
+
+
+  function reveal() public onlyOwner {
+      revealed = true;
+  }
+  
+  function setCost(uint256 _newCost) public onlyOwner {
+    cost = _newCost;
+  }
+
+  function setmaxMintAmount(uint256 _newmaxMintAmount) public onlyOwner {
+    maxMintAmount = _newmaxMintAmount;
+  }
+  
+  function setNotRevealedURI(string memory _notRevealedURI) public onlyOwner {
+    notRevealedUri = _notRevealedURI;
+  }
+
+  function setBaseURI(string memory _newBaseURI) public onlyOwner {
+    baseURI = _newBaseURI;
+  }
+
+  function setBaseExtension(string memory _newBaseExtension) public onlyOwner {
+    baseExtension = _newBaseExtension;
+  }
+
+  function pause(bool _state) public onlyOwner {
+    paused = _state;
+  }
+ 
+/*  function withdrawWithCall() public payable onlyOwner {
+    (bool os, ) = payable(owner()).call{value: address(this).balance}("");
+    require(os);
+  }
+}*/ //Old Hashlips withdraw function removed
+
+  function withdrawWithTransfer() public onlyOwner {
+    uint256 balance = address(this).balance;
+    payable(msg.sender).transfer(balance);
+  }//
+
+  function withdrawTokens(IERC20 token) public onlyOwner {
+    uint256 balance = token.balanceOf(address(this));
+    token.transfer(msg.sender, balance);
+    } //Added.
+
+    // ============ SUPPORTING FUNCTIONS ============
+
+  function nextTokenId() private returns (uint256) {
+    tokenCounter.increment();
+    return tokenCounter.current();
+  } //Added.
+
+  // ============ FUNCTION OVERRIDES ============
+
+  function supportsInterface(bytes4 interfaceId)
+    public
+    view
+    virtual
+    override(IERC165, ERC721Enumerable)
+    returns (bool)
+  {
+    return
+      interfaceId == type(IERC2981).interfaceId ||
+      super.supportsInterface(interfaceId);
+  } //Added.
+
+  // set to 5% royalty. 
+//IERC2981 is for the royalties
+/**
+   * @dev See {IERC165-royaltyInfo}.
+   */
+  function royaltyInfo(uint256 tokenId, uint256 salePrice)
+    external
+    view
+    override
+    returns (address receiver, uint256 royaltyAmount)
+  {
+    require(_exists(tokenId), "Nonexistent token");
+
+    return (address(this), SafeMath.div(SafeMath.mul(salePrice, 5), 100));
+  } //Added
+
+
+
+
+} //End of contract
+
+
+
+
+
+
+
