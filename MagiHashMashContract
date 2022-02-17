@@ -154,7 +154,7 @@ contract MagiHashMash is ERC721Enumerable, Ownable, IERC2981, ReentrancyGuard { 
 
     require(
       tokenCounter.current() + numberOfTokens <= maxAllowListSaleNFTs,
-      "Not enough NFTs remaining to mint"
+      "Not enough Allow List NFTs remaining to mint"
     );
 
     require(!paused);
