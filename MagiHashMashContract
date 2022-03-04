@@ -268,8 +268,7 @@ contract MagiHashMash is ERC721Enumerable, Ownable, IERC2981, ReentrancyGuard { 
   function withdrawEthWithCall() public payable onlyOwner {
     (bool os, ) = payable(owner()).call{value: address(this).balance}("");
     require(os);
-  }
-} //Old Hashlips withdraw function but edited to remove fees
+  }//Old Hashlips withdraw function but edited to remove fees
 
   function withdrawEthWithTransfer() public onlyOwner {
     uint256 balance = address(this).balance;
