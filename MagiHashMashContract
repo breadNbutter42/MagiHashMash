@@ -317,6 +317,8 @@ contract MagiHashMash is ERC721Enumerable, Ownable, IERC2981, ReentrancyGuard { 
 
     return (address(this), SafeMath.div(SafeMath.mul(salePrice, 5), 100));
   } //Added
+  
+  receive() external payable {} //Added. Needed to receive royalty payments
 */
 
 
